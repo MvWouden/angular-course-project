@@ -6,6 +6,8 @@ import { switchMap, catchError, map, tap } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import { of } from 'rxjs';
 import { Injectable } from '@angular/core';
+import { User } from '../user.model';
+import { AuthService } from '../auth.service';
 
 export interface AuthResponseData {
   idToken: string;
@@ -23,20 +25,22 @@ const handleAuthentication = (
   token: string
 ) => {
   const expirationDate = new Date(new Date().getTime() + 1000 * expiresIn);
+  const user = new User(email, userId, token, expirationDate);
+  localStorage.setItem('userData', JSON.stringify(user));
+
   return new AuthActions.AuthenticateSuccess({
     email,
     userId,
     token,
-    expirationDate
+    expirationDate,
+    redirect: true
   });
 };
 
 const handleError = (errorRes: any) => {
   let errorMessage = 'An unknown error has occured.';
 
-  if (!errorRes.error || !errorRes.error.error) {
-    return of(new AuthActions.AuthenticateFail(errorMessage));
-  }
+  if (!errorRes.error || !errorRes.error.error) return of(new AuthActions.AuthenticateFail(errorMessage));
 
   switch (errorRes.error.error.message) {
     case 'EMAIL_EXISTS':
@@ -76,17 +80,9 @@ export class AuthEffects {
           returnSecureToken: true
         }
       ).pipe(
-        map(resData => {
-          return handleAuthentication(
-            +resData.expiresIn,
-            resData.email,
-            resData.localId,
-            resData.idToken
-          );
-        }),
-        catchError(errorRes => {
-          return handleError(errorRes);
-        })
+        tap(resData => this.auth.setLogoutTimer(+resData.expiresIn * 1000)),
+        map(resData => handleAuthentication(+resData.expiresIn, resData.email, resData.localId, resData.idToken)),
+        catchError(errorRes => handleError(errorRes))
       );
     })
   );
@@ -103,32 +99,70 @@ export class AuthEffects {
           returnSecureToken: true
         }
       ).pipe(
-        map(resData => {
-          return handleAuthentication(
-            +resData.expiresIn,
-            resData.email,
-            resData.localId,
-            resData.idToken
-          );
-        }),
-        catchError(errorRes => {
-          return handleError(errorRes);
-        })
+        tap(resData => this.auth.setLogoutTimer(+resData.expiresIn * 1000)),
+        map(resData => handleAuthentication(+resData.expiresIn, resData.email, resData.localId, resData.idToken)),
+        catchError(errorRes => handleError(errorRes))
       );
     })
   );
 
-  @Effect({
-    dispatch: false
-  })
-  authSuccess = this.actions$.pipe(
+  @Effect({ dispatch: false })
+  authRedirect = this.actions$.pipe(
     ofType(AuthActions.AUTHENTICATE_SUCCESS),
-    tap(() => this.router.navigate(['/']))
+    tap((authSuccessAction: AuthActions.AuthenticateSuccess) => {
+      if (authSuccessAction.payload.redirect) this.router.navigate(['/']);
+    })
+  );
+
+  @Effect()
+  autoLogin = this.actions$.pipe(
+    ofType(AuthActions.AUTO_LOGIN),
+    map(() => {
+      const userData: {
+        email: string;
+        id: string;
+        _token: string;
+        _tokenExpirationDate: number;
+      } = JSON.parse(localStorage.getItem('userData'));
+
+      if (!userData) return { type: 'NO LOADED USER' };
+
+      const loadedUser = new User(
+        userData.email,
+        userData.id,
+        userData._token,
+        new Date(userData._tokenExpirationDate)
+      );
+
+      if (loadedUser.token) {
+        const expirationDuration = new Date(userData._tokenExpirationDate).getTime() - new Date().getTime();
+        this.auth.setLogoutTimer(expirationDuration);
+        return new AuthActions.AuthenticateSuccess({
+          email: loadedUser.email,
+          userId: loadedUser.id,
+          token: loadedUser.token,
+          expirationDate: new Date(userData._tokenExpirationDate),
+          redirect: false
+        });
+      }
+      return { type: 'NO LOADED USER' };
+    })
+  );
+
+  @Effect({ dispatch: false })
+  authLogout = this.actions$.pipe(
+    ofType(AuthActions.LOGOUT),
+    tap(() => {
+      this.auth.clearLogoutTimer();
+      localStorage.removeItem('userData');
+      this.router.navigate(['/auth']);
+    })
   );
 
   constructor(
     private actions$: Actions,
     private http: HttpClient,
-    private router: Router
+    private router: Router,
+    private auth: AuthService
   ) {}
 }
