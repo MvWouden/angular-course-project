@@ -25,18 +25,13 @@ export class AuthComponent implements OnInit, OnDestroy {
   }
 
   onSubmit(form: NgForm): void {
-    if (!form.valid) {
-      return;
-    }
+    if (!form.valid) return;
 
     const email = form.value.email;
     const password = form.value.password;
 
-    if (this.loginMode) {
-      this.store.dispatch(new AuthActions.LoginStart({email, password}));
-    } else {
-      this.store.dispatch(new AuthActions.SignupStart({email, password}));
-    }
+    if (this.loginMode) this.store.dispatch(new AuthActions.LoginStart({email, password}));
+    else this.store.dispatch(new AuthActions.SignupStart({email, password}));
 
     form.reset();
   }

@@ -23,9 +23,7 @@ export class AuthGuard implements CanActivate {
       map(authState => authState.user),
       map(user => {
           const isAuth = !!user;
-          if (isAuth) {
-            return true;
-          }
+          if (isAuth) return true;
           return this.router.createUrlTree(['/auth']);
       })
     );
